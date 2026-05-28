@@ -27,8 +27,6 @@ jobs:
           registry-url: https://registry.npmmirror.com
 
       - run: npm ci
-        env:
-          NODE_OPTIONS: --registry=https://registry.npmmirror.com
 
       - name: Package
         run: ${{ matrix.script }}
