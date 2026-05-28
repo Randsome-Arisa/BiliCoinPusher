@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx playwright *)",
+      "Bash(bun --version)",
+      "Bash(bun run *)",
+      "Bash(export PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright/)",
+      "Bash(npm install *)",
+      "Bash(curl -sL -H 'User-Agent: Mozilla/5.0 \\(X11; Linux x86_64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/148.0.0.0 Safari/537.36' -H 'Referer: https://www.bilibili.com/' -H 'Accept-Language: zh-CN,zh;q=0.9' https://www.bilibili.com/video/BV1GJ411x7hQ)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}
