@@ -1,0 +1,25 @@
+{
+  "name": "bilicoinpusher",
+  "version": "1.0.0",
+  "description": "B站自动投币工具",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "coin": "node dist/main.js coin",
+    "fav": "node dist/main.js fav",
+    "up": "node dist/main.js up",
+    "series": "node dist/main.js series"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.60.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "typescript": "^6.0.3"
+  }
+}
