@@ -1,4 +1,4 @@
-import { Page } from "playwright";
+import { Page } from "playwright-core";
 import { CONFIG } from "./config";
 import { setup, closeContext } from "./browser";
 import { donateCoin, CoinResult } from "./coin";

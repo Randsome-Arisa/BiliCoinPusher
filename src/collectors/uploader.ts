@@ -1,4 +1,4 @@
-import { Page } from "playwright";
+import { Page } from "playwright-core";
 import { apiCall } from "../api";
 import { Collector, CollectorOptions, VideoInfo } from "./types";
 import { CONFIG } from "../config";

@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            script: bash scripts/package.sh
+            artifact: bilicoinpusher-*-linux-x64.zip
+          - os: windows-latest
+            script: scripts/package.bat
+            artifact: bilicoinpusher-*-win-x64.zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://registry.npmmirror.com
+
+      - run: npm ci
+        env:
+          NODE_OPTIONS: --registry=https://registry.npmmirror.com
+
+      - name: Package
+        run: ${{ matrix.script }}
+        shell: bash
+
+      - name: Upload artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/${{ matrix.artifact }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

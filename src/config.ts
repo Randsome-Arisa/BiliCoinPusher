@@ -1,9 +1,8 @@
 import * as path from "path";
 
 export const CONFIG = {
-  // 浏览器
+  // 浏览器（Chrome/Chromium/Edge 自动检测）
   USER_DATA_DIR: path.join(__dirname, "..", "browser-profile"),
-  EXECUTABLE_PATH: "/snap/bin/chromium",
   VIEWPORT: { width: 1920, height: 1080 } as const,
   LOCALE: "zh-CN",
   USER_AGENT:

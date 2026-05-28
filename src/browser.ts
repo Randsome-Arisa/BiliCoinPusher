@@ -1,22 +1,70 @@
-import { chromium, BrowserContext, Page } from "playwright";
+import { chromium, BrowserContext, Page } from "playwright-core";
 import * as fs from "fs";
+import { execSync } from "child_process";
 import { CONFIG } from "./config";
 
 let _context: BrowserContext | null = null;
 
+/** 跨平台自动检测 Chrome/Chromium/Edge 路径 */
+function detectBrowser(): string {
+  const { platform } = process;
+  const candidates: string[] = [];
+
+  if (platform === "linux") {
+    candidates.push(
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/google-chrome",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium",
+      "/snap/bin/chromium",
+      "/opt/google/chrome/chrome",
+    );
+  } else if (platform === "win32") {
+    candidates.push(
+      (process.env.LOCALAPPDATA || "") + "\\Google\\Chrome\\Application\\chrome.exe",
+      (process.env.PROGRAMFILES || "") + "\\Google\\Chrome\\Application\\chrome.exe",
+      (process.env["PROGRAMFILES(X86)"] || "") + "\\Google\\Chrome\\Application\\chrome.exe",
+      (process.env.PROGRAMFILES || "") + "\\Microsoft\\Edge\\Application\\msedge.exe",
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    );
+  }
+
+  for (const c of candidates) {
+    if (c && fs.existsSync(c)) return c;
+  }
+
+  // 最后尝试 which/where 命令
+  try {
+    const cmd = platform === "win32" ? "where chrome" : "which chromium-browser || which chromium || which google-chrome";
+    const out = execSync(cmd, { encoding: "utf-8" }).trim();
+    if (out) return out.split("\n")[0].trim();
+  } catch { /* not found */ }
+
+  throw new Error(
+    "未找到 Chrome/Chromium/Edge 浏览器。\n" +
+    "Linux: sudo snap install chromium  或  sudo apt install chromium-browser\n" +
+    "Windows: 请安装 Google Chrome 或 Microsoft Edge",
+  );
+}
+
 async function createContext(headless: boolean): Promise<BrowserContext> {
+  const args: string[] = [
+    "--disable-blink-features=AutomationControlled",
+  ];
+
+  // Linux 沙箱参数
+  if (process.platform === "linux") {
+    args.push("--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage");
+  }
+
   _context = await chromium.launchPersistentContext(CONFIG.USER_DATA_DIR, {
     headless,
-    executablePath: CONFIG.EXECUTABLE_PATH,
+    executablePath: detectBrowser(),
     viewport: CONFIG.VIEWPORT,
     locale: CONFIG.LOCALE,
     userAgent: CONFIG.USER_AGENT,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-blink-features=AutomationControlled",
-    ],
+    args,
   });
   return _context;
 }
@@ -44,14 +92,12 @@ async function checkLogin(page: Page): Promise<boolean> {
 export async function setup(): Promise<{ context: BrowserContext; page: Page }> {
   const profileExists = fs.existsSync(CONFIG.USER_DATA_DIR);
 
-  // 先尝试 headless 启动（有 profile 才尝试，首次必然有头）
   let context = await createContext(profileExists);
   let page = context.pages()[0] || await context.newPage();
 
   let loggedIn = await checkLogin(page);
   if (loggedIn) return { context, page };
 
-  // 未登录 — 关闭 headless，开有界面浏览器供登录
   await context.close();
   console.log("未检测到登录状态，正在打开浏览器供登录...\n");
 
@@ -69,7 +115,6 @@ export async function setup(): Promise<{ context: BrowserContext; page: Page }> 
     process.stdin.once("data", () => resolve());
   });
 
-  // 登录完成，验证并切回 headless
   loggedIn = await checkLogin(page);
   if (!loggedIn) {
     await context.close();

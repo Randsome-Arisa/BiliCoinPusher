@@ -1,4 +1,4 @@
-import { Page } from "playwright";
+import { Page } from "playwright-core";
 import { CONFIG } from "./config";
 
 /** 在已登录的浏览器上下文中调用 B站 API */
