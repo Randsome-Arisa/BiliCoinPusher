@@ -7,14 +7,15 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             script: bash scripts/package.sh
-            artifact: bilicoinpusher-*-linux-x64.zip
+            name: linux-x64
           - os: windows-latest
             script: scripts/package.bat
-            artifact: bilicoinpusher-*-win-x64.zip
+            name: win-x64
 
     runs-on: ${{ matrix.os }}
 
@@ -32,10 +33,24 @@ jobs:
         run: ${{ matrix.script }}
         shell: bash
 
-      - name: Upload artifacts
-        uses: softprops/action-gh-release@v1
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: release/${{ matrix.artifact }}
-          generate_release_notes: true
+          name: bilicoinpusher-${{ matrix.name }}
+          path: release/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bilicoinpusher-*
+          path: release
+          merge-multiple: true
+
+      - run: |
+          ls -la release/
+          gh release create "$GITHUB_REF_NAME" release/*.zip --generate-notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
