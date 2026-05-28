@@ -61,18 +61,18 @@ function parseOptions(args: string[]): CliOptions {
 
 function formatCoinResult(r: CoinResult, index: number, total: number): string {
   const status = r.alreadyCoined ? "⏭ 已投过"
-    : r.dailyLimitReached ? "🛑 已达上限"
     : r.success ? "✅ 成功"
     : `❌ 失败: ${r.error || "未知"}`;
-  return `  [${index}/${total}] ${status}  ${r.title || r.bvid || r.videoUrl}`;
+  const extra = r.isReposted ? " [转载·1硬币]" : "";
+  return `  [${index}/${total}] ${status}${extra}  ${r.title || r.bvid || r.videoUrl}`;
 }
 
 async function runBatch(
   page: Page,
   videos: VideoInfo[],
   opts: CliOptions,
-): Promise<{ succeeded: number; skipped: number; failed: number; limitReached: boolean }> {
-  const stats = { succeeded: 0, skipped: 0, failed: 0, limitReached: false };
+): Promise<{ succeeded: number; skipped: number; failed: number }> {
+  const stats = { succeeded: 0, skipped: 0, failed: 0 };
   const total = videos.length;
 
   console.log(`\n开始批量投币 (共 ${total} 个视频)...\n`);
@@ -96,9 +96,6 @@ async function runBatch(
     } else if (result.alreadyCoined) {
       if (result.bvid) markCoined(result.bvid);
       stats.skipped++;
-    } else if (result.dailyLimitReached) {
-      stats.limitReached = true;
-      break;
     } else {
       stats.failed++;
     }
@@ -210,7 +207,6 @@ async function main(): Promise<void> {
     console.log(`  ✅ 成功: ${stats.succeeded}`);
     console.log(`  ⏭ 跳过: ${stats.skipped}`);
     console.log(`  ❌ 失败: ${stats.failed}`);
-    if (stats.limitReached) console.log(`  🛑 今日投币已达上限`);
   } finally {
     await closeContext();
   }

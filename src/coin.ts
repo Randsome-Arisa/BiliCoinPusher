@@ -7,7 +7,7 @@ export interface CoinResult {
   bvid: string;
   title: string;
   alreadyCoined: boolean;
-  dailyLimitReached: boolean;
+  isReposted: boolean;
   error?: string;
 }
 
@@ -24,7 +24,7 @@ export async function donateCoin(
     bvid: "",
     title: "",
     alreadyCoined: false,
-    dailyLimitReached: false,
+    isReposted: false,
   };
 
   // ── 1. 导航到视频页 ──
@@ -73,11 +73,8 @@ export async function donateCoin(
       return result;
     }
 
-    // 转载视频不能投币
-    if (preCheck.copyright === 2) {
-      result.error = "转载视频不能投币";
-      return result;
-    }
+    // 转载视频只支持投 1 枚硬币，标记以便后续跳过 2硬币选择
+    result.isReposted = preCheck.copyright === 2;
   } catch (e: any) {
     result.error = `提取视频信息失败: ${e.message}`;
     return result;
@@ -111,30 +108,19 @@ export async function donateCoin(
     return result;
   }
 
-  // ── 7. 检查每日上限 ──
-  try {
-    const tipsText = await page.locator(S.TIPS).textContent().catch(() => "");
-    if (tipsText && /已达上限|次数已用完|不能再投/.test(tipsText)) {
-      result.dailyLimitReached = true;
-      result.error = "今日投币已达上限";
-      // 关闭弹窗
-      await page.locator(S.COIN_DIALOG + " .icon.close").click().catch(() => {});
-      await page.waitForTimeout(500);
-      return result;
-    }
-  } catch { /* continue */ }
+  // ── 7. 确保选中 2硬币（转载视频仅支持 1 硬币，跳过此步）──
+  if (!result.isReposted) {
+    try {
+      const twoCoinBox = page.locator(S.TWO_COIN_BOX);
+      const isSelected = await twoCoinBox.evaluate((el) => el.classList.contains("on")).catch(() => false);
+      if (!isSelected) {
+        await twoCoinBox.click();
+        await page.waitForTimeout(300);
+      }
+    } catch { /* continue */ }
+  }
 
-  // ── 8. 确保选中 2硬币 ──
-  try {
-    const twoCoinBox = page.locator(S.TWO_COIN_BOX);
-    const isSelected = await twoCoinBox.evaluate((el) => el.classList.contains("on")).catch(() => false);
-    if (!isSelected) {
-      await twoCoinBox.click();
-      await page.waitForTimeout(300);
-    }
-  } catch { /* continue */ }
-
-  // ── 9. 点击确定 ──
+  // ── 8. 点击确定 ──
   try {
     await page.locator(S.CONFIRM_BTN).click();
   } catch (e: any) {
@@ -142,7 +128,7 @@ export async function donateCoin(
     return result;
   }
 
-  // ── 10. 等待弹窗关闭 ──
+  // ── 9. 等待弹窗关闭 ──
   try {
     await page.locator(S.COIN_DIALOG).waitFor({ state: "hidden", timeout: CONFIG.DIALOG_WAIT });
   } catch {
@@ -152,7 +138,7 @@ export async function donateCoin(
   }
   await page.waitForTimeout(1000);
 
-  // ── 11. 验证结果 ──
+  // ── 10. 验证结果 ──
   try {
     const coinBtn = page.locator(S.COIN_BUTTON).first();
     const cls = (await coinBtn.getAttribute("class").catch(() => "")) || "";
