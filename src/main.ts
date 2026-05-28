@@ -100,11 +100,6 @@ async function runBatch(
       stats.failed++;
     }
 
-    if (stats.succeeded >= opts.max) {
-      console.log(`\n  已达到本次上限 (${opts.max} 个)，停止`);
-      break;
-    }
-
     if (i < videos.length - 1) {
       await page.waitForTimeout(opts.delay);
     }
@@ -192,12 +187,18 @@ async function main(): Promise<void> {
 
     if (opts.dryRun) {
       console.log("\n── dry-run 模式，以下视频将被投币 ──");
-      for (let i = 0; i < videos.length; i++) {
-        console.log(`  ${i + 1}. [${videos[i].bvid}] ${videos[i].title}`);
+      const preview = videos.slice(0, opts.max);
+      for (let i = 0; i < preview.length; i++) {
+        console.log(`  ${i + 1}. [${preview[i].bvid}] ${preview[i].title}`);
       }
-      console.log(`\n共 ${videos.length} 个视频，不会实际投币`);
+      console.log(`\n共 ${preview.length} 个视频，不会实际投币`);
       return;
     }
+
+    // 截断到 --max 上限
+    const total = Math.min(videos.length, opts.max);
+    videos = videos.slice(0, total);
+    console.log(`本次将投币: ${total} 个视频`);
 
     const stats = await runBatch(page, videos, opts);
 

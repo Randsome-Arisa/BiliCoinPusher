@@ -132,7 +132,11 @@ export async function setup(): Promise<{ context: BrowserContext; page: Page }> 
 
 export async function closeContext(): Promise<void> {
   if (_context) {
-    await _context.close();
+    // 加超时避免 Windows 上关闭 browser 时卡死
+    await Promise.race([
+      _context.close(),
+      new Promise<void>((r) => setTimeout(r, 5000)),
+    ]);
     _context = null;
   }
 }
