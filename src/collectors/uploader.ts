@@ -12,6 +12,19 @@ interface UpListData {
   list?: { vlist?: VItem[] };
 }
 
+/** 自定义错误：携带 API 已收集的部分数据，供 DOM 回退时续传 */
+class ApiPartialError extends Error {
+  partialResults: VideoInfo[];
+  failedPage: number;
+
+  constructor(message: string, partialResults: VideoInfo[], failedPage: number) {
+    super(message);
+    this.name = "ApiPartialError";
+    this.partialResults = partialResults;
+    this.failedPage = failedPage;
+  }
+}
+
 export class UploaderCollector implements Collector {
   constructor(private uid: string) {}
 
@@ -23,9 +36,19 @@ export class UploaderCollector implements Collector {
       return await this.collectViaApi(page, maxPages);
     } catch (e: any) {
       console.log(`  API 调用失败: ${e.message}`);
+
+      // 如果 API 已收集部分数据，保留并从失败页继续 DOM 抓取
+      if (e instanceof ApiPartialError && e.partialResults.length > 0) {
+        console.log(
+          `  API 已收集 ${e.partialResults.length} 个视频（前 ${e.failedPage - 1} 页），` +
+            `从第 ${e.failedPage} 页继续 DOM 抓取...`,
+        );
+        const domResults = await this.collectViaPage(page, maxPages, e.failedPage);
+        return [...e.partialResults, ...domResults];
+      }
     }
 
-    // 回退到 DOM 抓取
+    // API 完全失败（首页即失败），全部使用 DOM 抓取
     console.log("  回退到页面抓取模式...");
     return this.collectViaPage(page, maxPages);
   }
@@ -43,7 +66,12 @@ export class UploaderCollector implements Collector {
       });
 
       if (resp.code !== 0) {
-        throw new Error(`API 返回 code=${resp.code} (${resp.message})，回退 DOM 抓取`);
+        // 抛出携带部分结果的错误，供上层保留数据
+        throw new ApiPartialError(
+          `API 返回 code=${resp.code} (${resp.message})，回退 DOM 抓取`,
+          results,
+          pn,
+        );
       }
 
       const vlist = resp.data?.list?.vlist ?? [];
@@ -64,28 +92,47 @@ export class UploaderCollector implements Collector {
     return results;
   }
 
-  private async collectViaPage(page: Page, maxPages: number): Promise<VideoInfo[]> {
+  /**
+   * DOM 页面抓取，使用 URL 参数分页（?pn=N）替代按钮点击，更可靠
+   * @param startPage 从第几页开始抓取（API 失败续传时使用）
+   */
+  private async collectViaPage(
+    page: Page,
+    maxPages: number,
+    startPage: number = 1,
+  ): Promise<VideoInfo[]> {
     const results: VideoInfo[] = [];
-    const spaceUrl = `https://space.bilibili.com/${this.uid}/video`;
+    const seen = new Set<string>(); // 跨页去重
 
-    await page.goto(spaceUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: CONFIG.PAGE_GOTO_TIMEOUT,
-    });
-    await page.waitForTimeout(5000);
+    for (let pn = startPage; pn <= maxPages; pn++) {
+      // 使用 URL 参数直接跳转到指定页，避免依赖 DOM 按钮
+      const pageUrl = `https://space.bilibili.com/${this.uid}/video?tid=0&pn=${pn}&keyword=&order=pubdate`;
 
-    let pageNum = 1;
-    while (pageNum <= maxPages) {
+      console.log(`  正在抓取第 ${pn} 页...`);
+
+      try {
+        await page.goto(pageUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: CONFIG.PAGE_GOTO_TIMEOUT,
+        });
+      } catch (navErr: any) {
+        console.log(`  第 ${pn} 页导航失败: ${navErr.message}`);
+        break;
+      }
+
+      // 等待页面渲染（视频列表通过 AJAX 加载）
+      await page.waitForTimeout(3000);
+
       // 提取当前页视频链接
       const videos = await page.evaluate(() => {
         const items: { bvid: string; title: string }[] = [];
         const links = document.querySelectorAll("a[href*='/video/BV']");
-        const seen = new Set<string>();
+        const localSeen = new Set<string>();
         for (const a of links) {
           const href = a.getAttribute("href") || "";
           const match = href.match(/BV[\w]+/);
-          if (match && !seen.has(match[0])) {
-            seen.add(match[0]);
+          if (match && !localSeen.has(match[0])) {
+            localSeen.add(match[0]);
             items.push({
               bvid: match[0],
               title: a.textContent?.trim() || a.getAttribute("title") || "",
@@ -95,29 +142,31 @@ export class UploaderCollector implements Collector {
         return items;
       });
 
-      if (videos.length === 0) break;
+      if (videos.length === 0) {
+        console.log(`  第 ${pn} 页无视频，停止翻页`);
+        break;
+      }
 
+      let newCount = 0;
       for (const v of videos) {
-        if (v.title) {
-          results.push({ url: `https://www.bilibili.com/video/${v.bvid}`, bvid: v.bvid, title: v.title });
+        if (v.title && !seen.has(v.bvid)) {
+          seen.add(v.bvid);
+          results.push({
+            url: `https://www.bilibili.com/video/${v.bvid}`,
+            bvid: v.bvid,
+            title: v.title,
+          });
+          newCount++;
         }
       }
 
-      // 尝试翻页
-      const hasNext = await page.evaluate(() => {
-        const nextBtn = document.querySelector(".be-pager-next:not(.be-pager-disabled)");
-        return !!nextBtn;
-      });
+      console.log(`  第 ${pn} 页提取 ${newCount} 个新视频（共 ${videos.length} 个链接）`);
 
-      if (!hasNext) break;
+      // 如果本页没有新视频（全部重复），说明到底了
+      if (newCount === 0) break;
 
-      try {
-        await page.locator(".be-pager-next").first().click();
-        await page.waitForTimeout(3000);
-        pageNum++;
-      } catch {
-        break;
-      }
+      // 如果视频数明显少于一页（30个），通常是最后一页
+      if (videos.length < 20) break;
     }
 
     return results;
