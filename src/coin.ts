@@ -48,6 +48,17 @@ export async function donateCoin(
     return result;
   }
 
+  // ── 2.5. 检查付费视频（geetest 验证码遮罩层会拦截所有点击）──
+  try {
+    const geetestCount = await page.locator(".geetest_panel").count();
+    if (geetestCount > 0) {
+      result.error = "付费视频（需验证），自动跳过";
+      return result;
+    }
+  } catch {
+    // 页面可能已关闭，忽略
+  }
+
   // ── 3. 提取视频元信息并检查是否已投币 ──
   try {
     const preCheck = await page.evaluate((coinSelector) => {
@@ -88,12 +99,19 @@ export async function donateCoin(
 
   // ── 5. 点击投币按钮 ──
   try {
+    // 再次检查 geetest 遮罩（可能异步加载晚于步骤 2.5 的检测）
+    const geetestGhost = page.locator(".geetest_panel_ghost");
+    if ((await geetestGhost.count()) > 0) {
+      result.error = "付费视频（需验证），自动跳过";
+      return result;
+    }
+
     const coinBtn = page.locator(S.COIN_BUTTON).first();
     if (!(await coinBtn.isVisible({ timeout: 3000 }))) {
       result.error = "投币按钮不可见";
       return result;
     }
-    await coinBtn.click();
+    await coinBtn.click({ timeout: 10000 });
   } catch (e: any) {
     result.error = `点击投币按钮失败: ${e.message}`;
     return result;
