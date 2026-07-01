@@ -25,6 +25,9 @@ src/
 - **playwright-core**：不捆绑浏览器，依赖系统 Chrome/Edge，减小包体积
 - **登录态自动管理**：`setup()` 内部判断 → 有 cookie 就 headless，没有就弹窗登录后切回 headless
 - **API → DOM 回退**：B站 API 可能因 WBI 签名失败（-403/-352），uploader 和 series 自动回退到页面 DOM 抓取
+- **API 部分失败保留数据**：API 在第 N 页失败时，保留前 N-1 页已收集的视频，DOM 从第 N 页续抓（不丢弃已有数据）
+- **DOM 翻页用 URL 参数**：回退 DOM 抓取时使用 `?pn=N` URL 参数直达指定页，不再依赖点击 `.be-pager-next` 按钮
+- **付费视频检测**：`.geetest_panel` 遮罩检测（导航后 + 点击前两道防线），遇到付费视频自动跳过不阻塞批量任务
 - **转载视频处理**：copyright=2 只投 1 枚硬币（原创投 2 枚），不跳过
 - **无每日投币上限**：B站不限制每天投币次数，"今日 20/50" 只是经验值上限
 
@@ -50,7 +53,8 @@ git tag v1.2.0 && git push origin v1.2.0
 
 ## 已知问题 / 待办
 
-- (无，暂时没有待解决的需求)
+- 收藏夹采集器（favorites.ts）无 DOM 回退方案，API 彻底失败时无法降级
+- 合集 DOM 回退的 URL 参数 `&pn=N` 未在真实环境验证（B站可能使用不同参数名）
 
 ## Skill routing
 
