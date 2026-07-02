@@ -112,7 +112,11 @@ export async function setup(): Promise<{ context: BrowserContext; page: Page }> 
 
   console.log("请在浏览器中登录 B站（扫码或账号密码），登录成功后按 Enter 继续...");
   await new Promise<void>((resolve) => {
-    process.stdin.once("data", () => resolve());
+    process.stdin.once("data", () => {
+      // 恢复 stdin 为暂停模式，避免事件循环被 stdin 占用导致进程无法退出
+      process.stdin.pause();
+      resolve();
+    });
   });
 
   loggedIn = await checkLogin(page);

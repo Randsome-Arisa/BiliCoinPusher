@@ -108,6 +108,83 @@ async function runBatch(
   return stats;
 }
 
+/**
+ * 按页投币：将视频按所在页分组，每投完一页的视频后返回空间页刷新上下文，
+ * 再投下一页。避免浏览器长期停留在一个页面上触发反爬检测。
+ */
+async function runBatchPaged(
+  page: Page,
+  videos: VideoInfo[],
+  uid: string,
+  opts: CliOptions,
+): Promise<{ succeeded: number; skipped: number; failed: number }> {
+  const stats = { succeeded: 0, skipped: 0, failed: 0 };
+  const total = videos.length;
+
+  // 按 pageNumber 分组（未设置 pageNumber 的视频归到 page 0）
+  const pageGroups = new Map<number, VideoInfo[]>();
+  for (const v of videos) {
+    const pn = v.pageNumber ?? 0;
+    if (!pageGroups.has(pn)) pageGroups.set(pn, []);
+    pageGroups.get(pn)!.push(v);
+  }
+
+  const sortedPages = [...pageGroups.keys()].sort((a, b) => a - b);
+
+  console.log(`\n开始按页投币 (共 ${total} 个视频，${sortedPages.length} 页)...\n`);
+
+  let globalIndex = 0;
+
+  for (const pageNum of sortedPages) {
+    const pageVideos = pageGroups.get(pageNum)!;
+
+    // 回到对应页的空间页，重置浏览器上下文
+    const spaceUrl = `https://space.bilibili.com/${uid}/video?tid=0&pn=${pageNum}&keyword=&order=pubdate`;
+    console.log(`  ── 第 ${pageNum} 页（${pageVideos.length} 个视频）──`);
+    console.log(`  正在加载空间页第 ${pageNum} 页...`);
+
+    try {
+      await page.goto(spaceUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: CONFIG.PAGE_GOTO_TIMEOUT,
+      });
+      await page.waitForTimeout(3000);
+    } catch (navErr: any) {
+      console.log(`  空间页加载失败: ${navErr.message}，直接投币`);
+    }
+
+    for (const v of pageVideos) {
+      globalIndex++;
+
+      if (opts.resume && isCoined(v.bvid)) {
+        console.log(`  [${globalIndex}/${total}] ⏭ 跳过 (已投过)  ${v.title}`);
+        stats.skipped++;
+        continue;
+      }
+
+      const result = await donateCoin(page, v.url, { dryRun: opts.dryRun });
+
+      console.log(formatCoinResult(result, globalIndex, total));
+
+      if (result.success && result.bvid) {
+        markCoined(result.bvid);
+        stats.succeeded++;
+      } else if (result.alreadyCoined) {
+        if (result.bvid) markCoined(result.bvid);
+        stats.skipped++;
+      } else {
+        stats.failed++;
+      }
+
+      if (globalIndex < total) {
+        await page.waitForTimeout(opts.delay);
+      }
+    }
+  }
+
+  return stats;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
@@ -126,6 +203,8 @@ async function main(): Promise<void> {
   }
 
   const { context: ctx, page } = await setup();
+
+  let pagedUid: string | null = null; // up 模式：需按页投币
 
   try {
     if (command === "coin") {
@@ -160,6 +239,7 @@ async function main(): Promise<void> {
       console.log(`📂 正在获取 UP主 ${uid} 的视频列表...`);
       const collector = new UploaderCollector(uid);
       videos = await collector.collect(page, { maxPages: opts.dryRun ? 2 : undefined });
+      pagedUid = uid; // 按页投币
     } else if (command === "series") {
       const uid = args[1];
       const sid = args[2];
@@ -200,7 +280,9 @@ async function main(): Promise<void> {
     videos = videos.slice(0, total);
     console.log(`本次将投币: ${total} 个视频`);
 
-    const stats = await runBatch(page, videos, opts);
+    const stats = pagedUid
+      ? await runBatchPaged(page, videos, pagedUid, opts)
+      : await runBatch(page, videos, opts);
 
     console.log("\n" + "=".repeat(50));
     console.log("投币完成");
@@ -213,7 +295,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => {
+main().then(() => {
+  // 显式退出，避免 stdin / Playwright 内部资源阻止进程退出
+  process.exit(0);
+}).catch((e) => {
   console.error("脚本错误:", e);
   process.exit(1);
 });
